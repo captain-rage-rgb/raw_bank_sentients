@@ -1,19 +1,24 @@
 """
 Rawbank Sentient Fraud Intelligence Platform - FastAPI Server
 File: backend/main.py
-Powers the Sentient Command Centre (Use Case 01) with live DuckDB analytics over RAWBANK_SENTIENT_KB.csv.
+Powers:
+- Use Case 01: Sentient Command Centre (DuckDB analytical telemetry)
+- Use Case 02: Sentient Fraud Investigation Copilot (Dual retrieval + Groq LLM reasoning)
 """
 
 import traceback
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, Dict, Any
+from pydantic import BaseModel
+from typing import Optional, Dict, Any, List
+
 from database import db
+from copilot import copilot
 
 app = FastAPI(
     title="Rawbank Sentient Fraud Intelligence Platform API",
-    version="1.0.0",
-    description="Enterprise BFSI Real-Time Command Centre & Fraud Intelligence Platform for Rawbank DRC."
+    version="2.0.0",
+    description="Enterprise BFSI Command Centre & AI Fraud Investigation Copilot for Rawbank DRC."
 )
 
 # Enable CORS for Next.js frontend (default port 3000, 3001, etc.)
@@ -25,14 +30,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+class CopilotChatRequest(BaseModel):
+    transaction_id: str
+    query: Optional[str] = ""
+
+
 @app.get("/api/health")
 def health_check():
     return {
         "status": "healthy",
         "platform": "Rawbank Sentient Fraud Intelligence Platform",
-        "version": "1.0.0",
-        "use_case": "Use Case 01: Sentient Command Centre"
+        "version": "2.0.0",
+        "use_cases": [
+            "Use Case 01: Sentient Command Centre",
+            "Use Case 02: Sentient Fraud Investigation Copilot"
+        ]
     }
+
+# =============================================================================
+# USE CASE 01: SENTIENT COMMAND CENTRE ENDPOINTS
+# =============================================================================
 
 @app.get("/api/kpis")
 def get_kpis():
@@ -105,6 +123,34 @@ def get_transaction_drilldown(transaction_id: str):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to retrieve transaction: {str(e)}")
+
+# =============================================================================
+# USE CASE 02: SENTIENT FRAUD INVESTIGATION COPILOT ENDPOINTS
+# =============================================================================
+
+@app.post("/api/copilot/chat")
+def copilot_chat(req: CopilotChatRequest):
+    """
+    Executes an AI-assisted fraud investigation interrogation turn for a transaction.
+    Combines deterministic ground truth telemetry with FAISS semantic similarity and
+    generates a structured 7-part investigation report under Section 12 requirements.
+    """
+    try:
+        return copilot.investigate(req.transaction_id, req.query or "")
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Copilot investigation failed: {str(e)}")
+
+@app.get("/api/copilot/suggestions/{transaction_id}")
+def get_copilot_suggestions(transaction_id: str):
+    """
+    Returns context-aware 1-click prompt chips tailored to the transaction alert pattern.
+    """
+    try:
+        return {"suggestions": copilot.get_suggestions(transaction_id)}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to generate suggestions: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

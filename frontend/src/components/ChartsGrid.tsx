@@ -65,11 +65,11 @@ export const ChartsGrid: React.FC<ChartsGridProps> = ({ analytics, isLoading }) 
   }
 
   // Aggregate weekly or downsample daily trends to ~13 week intervals for smooth view
-  const trends = analytics.daily_trends;
+  const trends = analytics.daily_trends || [];
 
   // Channel data formatted
-  const channelData = analytics.channel_distribution.map((c) => ({
-    name: c.channel.replace('_', ' '),
+  const channelData = (analytics.channel_distribution || []).map((c) => ({
+    name: (c.channel || '').replace('_', ' '),
     raw_channel: c.channel,
     alerts: c.alert_count,
     txns: c.total_txns,
@@ -79,7 +79,7 @@ export const ChartsGrid: React.FC<ChartsGridProps> = ({ analytics, isLoading }) 
   }));
 
   // Geographic data sorted
-  const geoData = analytics.geographic_distribution.slice(0, 6);
+  const geoData = (analytics.geographic_distribution || []).slice(0, 6);
 
   return (
     <div className="space-y-6 mb-8">
@@ -257,7 +257,7 @@ export const ChartsGrid: React.FC<ChartsGridProps> = ({ analytics, isLoading }) 
           </div>
 
           <div className="space-y-2.5">
-            {analytics.top_risky_entities.flagged_devices.map((dev, idx) => (
+            {(analytics.top_risky_entities?.flagged_devices || []).map((dev, idx) => (
               <div key={idx} className="p-2.5 rounded-lg bg-[#070D19]/60 border border-[#1E2E4E] flex items-center justify-between text-xs">
                 <div>
                   <div className="flex items-center gap-2">
@@ -292,7 +292,7 @@ export const ChartsGrid: React.FC<ChartsGridProps> = ({ analytics, isLoading }) 
           </div>
 
           <div className="space-y-2.5">
-            {analytics.top_risky_entities.suspicious_beneficiaries.map((ben, idx) => (
+            {(analytics.top_risky_entities?.suspicious_beneficiaries || []).map((ben, idx) => (
               <div key={idx} className="p-2.5 rounded-lg bg-[#070D19]/60 border border-[#1E2E4E] flex items-center justify-between text-xs">
                 <div className="max-w-[65%]">
                   <div className="flex items-center gap-1.5">

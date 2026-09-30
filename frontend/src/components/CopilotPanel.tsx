@@ -27,10 +27,19 @@ interface CopilotPanelProps {
   transaction: TransactionDrilldown;
 }
 
+const safeArray = <T,>(val: any, fallback: T[] = []): T[] => {
+  if (Array.isArray(val)) return val;
+  if (val !== undefined && val !== null && typeof val === 'string' && val.trim().length > 0) {
+    return [val as unknown as T];
+  }
+  return fallback;
+};
+
 export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
   const txnId = transaction.transaction.transaction_id;
 
   const [query, setQuery] = useState('');
+  const [activeQuery, setActiveQuery] = useState<string>('Comprehensive fraud triage & forensic assessment');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [investigation, setInvestigation] = useState<CopilotInvestigation | null>(null);
@@ -50,7 +59,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
 
         // 1. Fetch suggestions
         const suggs = await fetchCopilotSuggestions(txnId);
-        if (isMounted && suggs.length > 0) {
+        if (isMounted && Array.isArray(suggs) && suggs.length > 0) {
           setSuggestions(suggs);
         }
 
@@ -60,9 +69,13 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
           'Provide comprehensive fraud triage and forensic risk assessment.'
         );
         if (isMounted) {
-          setInvestigation(res.investigation);
-          setEngineUsed(res.engine);
-          setContextSummary(res.context_summary);
+          if (!res || !res.success || !res.investigation) {
+            setErrorMessage((res as any)?.error || 'Failed to initialize Sentient Copilot');
+          } else {
+            setInvestigation(res.investigation);
+            setEngineUsed(res.engine || 'Sentient Intelligence Layer');
+            setContextSummary(res.context_summary);
+          }
         }
       } catch (err: any) {
         if (isMounted) {
@@ -87,12 +100,17 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
 
     try {
       setIsLoading(true);
+      setActiveQuery(q);
       setErrorMessage(null);
       const res = await fetchCopilotChat(txnId, q);
-      setInvestigation(res.investigation);
-      setEngineUsed(res.engine);
-      setContextSummary(res.context_summary);
-      if (!customQuery) setQuery('');
+      if (!res || !res.success || !res.investigation) {
+        setErrorMessage((res as any)?.error || 'Failed to process inquiry');
+      } else {
+        setInvestigation(res.investigation);
+        setEngineUsed(res.engine || 'Sentient Intelligence Layer');
+        setContextSummary(res.context_summary);
+        if (!customQuery) setQuery('');
+      }
     } catch (err: any) {
       console.error('Copilot query error:', err);
       setErrorMessage(err.message || 'Failed to process inquiry');
@@ -167,13 +185,13 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
         </div>
 
         {/* Quick-Prompt Suggestions */}
-        {suggestions.length > 0 && (
+        {safeArray<string>(suggestions).length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap pt-1">
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1 mr-1">
               <Sparkles className="w-3 h-3 text-purple-400" />
               Quick Chips:
             </span>
-            {suggestions.map((sugg, idx) => (
+            {safeArray<string>(suggestions).map((sugg, idx) => (
               <button
                 key={idx}
                 onClick={() => handleSendQuery(sugg)}
@@ -224,16 +242,22 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
       {!isLoading && investigation && (
         <div className="space-y-4 animate-in fade-in duration-300">
           {/* Executive Summary Card */}
-          <div className="p-4 rounded-xl bg-purple-950/20 border border-purple-500/30 space-y-2">
+          <div className="p-4 rounded-xl bg-purple-950/20 border border-purple-500/30 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
                 <BrainCircuit className="w-3.5 h-3.5 text-purple-400" />
-                Executive Synthesis (Probabilistic Assessment)
+                Executive AI Synthesis &bull; Investigation Turn
               </span>
               <span className="text-[10px] font-mono bg-purple-900/40 text-purple-300 px-2 py-0.5 rounded border border-purple-500/30">
                 Analyst Triage Level
               </span>
             </div>
+            {activeQuery && (
+              <div className="text-[11px] text-purple-200 bg-purple-950/60 border border-purple-500/30 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                <span className="text-purple-400 font-bold uppercase text-[9px] tracking-wider shrink-0">Inquiry:</span>
+                <span className="font-sans italic text-white truncate">"{activeQuery}"</span>
+              </div>
+            )}
             <p className="text-xs text-slate-200 leading-relaxed font-sans font-medium">
               {investigation.executive_summary}
             </p>
@@ -246,7 +270,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
               1. Observed Facts (Verified Telemetry)
             </h4>
             <ul className="space-y-1.5 text-xs text-slate-300">
-              {investigation.observed_facts.map((fact, idx) => (
+              {safeArray<string>(investigation.observed_facts).map((fact, idx) => (
                 <li key={idx} className="flex items-start gap-2">
                   <span className="text-cyan-400 mt-1 shrink-0 text-[10px]">&bull;</span>
                   <span>{fact}</span>
@@ -262,7 +286,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
               2. Derived Metrics (Behavioral Calibration)
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-              {investigation.derived_metrics.map((metric, idx) => (
+              {safeArray<string>(investigation.derived_metrics).map((metric, idx) => (
                 <div key={idx} className="p-2.5 rounded-lg bg-[#0A1324] border border-[#1E2E4E] text-xs text-slate-300 flex items-start gap-2">
                   <span className="text-indigo-400 font-bold shrink-0 mt-0.5">#{idx + 1}</span>
                   <span className="leading-snug">{metric}</span>
@@ -278,18 +302,18 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
               3. Triggered Rules (FR-01 to FR-20 Weights)
             </h4>
             <div className="space-y-2">
-              {investigation.triggered_rules.map((rule, idx) => (
+              {safeArray<CopilotInvestigation['triggered_rules'][number]>(investigation.triggered_rules).map((rule, idx) => (
                 <div key={idx} className="p-2.5 rounded-lg bg-[#0F1D38] border border-amber-500/20 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
                     <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-bold text-[11px]">
-                      {rule.rule_code}
+                      {rule?.rule_code || 'FR-XX'}
                     </span>
-                    <span className="text-white font-semibold">{rule.rule_name}</span>
+                    <span className="text-white font-semibold">{rule?.rule_name || 'Rule'}</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-slate-400 hidden sm:inline">{rule.detail}</span>
+                    <span className="text-[11px] text-slate-400 hidden sm:inline">{rule?.detail || ''}</span>
                     <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-300 font-mono font-bold text-[11px] shrink-0">
-                      +{rule.weight}
+                      +{rule?.weight || 0}
                     </span>
                   </div>
                 </div>
@@ -306,7 +330,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
                 4. Supporting Evidence (Risk Signals)
               </h4>
               <ul className="space-y-2 text-xs">
-                {investigation.supporting_evidence.map((ev, idx) => (
+                {safeArray<string>(investigation.supporting_evidence).map((ev, idx) => (
                   <li key={idx} className="p-2 rounded bg-red-950/20 border border-red-500/20 text-red-200 flex items-start gap-2">
                     <span className="text-red-400 shrink-0 font-bold">&bull;</span>
                     <span>{ev}</span>
@@ -322,7 +346,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
                 5. Counter-Evidence (CE-01 to CE-05)
               </h4>
               <ul className="space-y-2 text-xs">
-                {investigation.counter_evidence.map((cev, idx) => (
+                {safeArray<string>(investigation.counter_evidence).map((cev, idx) => (
                   <li key={idx} className="p-2 rounded bg-emerald-950/20 border border-emerald-500/20 text-emerald-200 flex items-start gap-2">
                     <span className="text-emerald-400 shrink-0 font-bold">&check;</span>
                     <span>{cev}</span>
@@ -339,7 +363,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
               6. Evidence Gaps (Required Out-of-Band Verification)
             </h4>
             <div className="space-y-1.5 text-xs text-slate-300">
-              {investigation.evidence_gaps.map((gap, idx) => (
+              {safeArray<string>(investigation.evidence_gaps).map((gap, idx) => (
                 <div key={idx} className="p-2 rounded bg-[#0A1324] border border-slate-800 flex items-start gap-2">
                   <span className="text-amber-400 font-bold shrink-0 mt-0.5">?</span>
                   <span>{gap}</span>
@@ -358,12 +382,12 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
                 </h4>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="px-2.5 py-1 rounded bg-blue-600/30 border border-blue-400/40 text-blue-200 font-mono font-bold text-xs">
-                    {investigation.recommended_analyst_action.action}
+                    {investigation.recommended_analyst_action?.action || 'REVIEW'}
                   </span>
                   <span className="text-xs text-slate-300">
                     Suggested Disposition:{' '}
                     <strong className="text-white">
-                      {investigation.recommended_analyst_action.disposition_suggestion}
+                      {investigation.recommended_analyst_action?.disposition_suggestion || 'SUSPICIOUS'}
                     </strong>
                   </span>
                 </div>
@@ -371,7 +395,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              <strong>Rationale:</strong> {investigation.recommended_analyst_action.rationale}
+              <strong>Rationale:</strong> {investigation.recommended_analyst_action?.rationale || 'Forensic operational triage required.'}
             </p>
 
             {/* Next Steps Checklist */}
@@ -380,7 +404,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ transaction }) => {
                 Recommended Execution Steps:
               </span>
               <ul className="space-y-1.5 text-xs text-slate-300">
-                {investigation.recommended_analyst_action.next_steps.map((step, idx) => (
+                {safeArray<string>(investigation.recommended_analyst_action?.next_steps).map((step, idx) => (
                   <li key={idx} className="flex items-center gap-2 p-1.5 rounded bg-[#070D19]/60 border border-slate-800/80">
                     <span className="w-4 h-4 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center text-[10px] font-bold shrink-0">
                       {idx + 1}

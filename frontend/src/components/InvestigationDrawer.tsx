@@ -184,15 +184,15 @@ export const InvestigationDrawer: React.FC<InvestigationDrawerProps> = ({
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-3 flex items-center gap-2">
                   <PlusCircle className="w-4 h-4 text-red-400" />
-                  Triggered Synthetic Fraud Rules ({transaction.triggered_rules.length})
+                  Triggered Synthetic Fraud Rules ({transaction.triggered_rules?.length || 0})
                 </h4>
-                {transaction.triggered_rules.length === 0 ? (
+                {(transaction.triggered_rules?.length || 0) === 0 ? (
                   <p className="text-xs text-slate-500 italic p-3 rounded bg-[#070D19]">
                     No explicit fraud rules fired for this baseline event.
                   </p>
                 ) : (
                   <div className="space-y-2.5">
-                    {transaction.triggered_rules.map((rule) => (
+                    {(transaction.triggered_rules || []).map((rule) => (
                       <div
                         key={rule.id}
                         className="p-3.5 rounded-xl bg-[#0F1D38] border border-[#1E2E4E] hover:border-red-500/40 transition-colors"
@@ -228,15 +228,15 @@ export const InvestigationDrawer: React.FC<InvestigationDrawerProps> = ({
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-3 flex items-center gap-2">
                   <MinusCircle className="w-4 h-4 text-emerald-400" />
-                  Counter-Evidence Identified ({transaction.counter_evidence.length})
+                  Counter-Evidence Identified ({transaction.counter_evidence?.length || 0})
                 </h4>
-                {transaction.counter_evidence.length === 0 ? (
+                {(transaction.counter_evidence?.length || 0) === 0 ? (
                   <p className="text-xs text-slate-500 italic p-3 rounded bg-[#070D19]">
                     No counter-evidence factors observed to lower the risk score.
                   </p>
                 ) : (
                   <div className="space-y-2.5">
-                    {transaction.counter_evidence.map((ce) => (
+                    {(transaction.counter_evidence || []).map((ce) => (
                       <div
                         key={ce.id}
                         className="p-3.5 rounded-xl bg-[#0F1D38] border border-emerald-500/30 hover:border-emerald-500/50 transition-colors"

@@ -11,6 +11,8 @@ import { fetchKPIs, fetchAnalytics, fetchAlerts, fetchTransaction } from '@/lib/
 import { ShieldCheck, AlertCircle } from 'lucide-react';
 
 export default function SentientCommandCentre() {
+  const [mounted, setMounted] = useState(false);
+
   // State
   const [kpis, setKpis] = useState<KPIsData | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
@@ -90,6 +92,7 @@ export default function SentientCommandCentre() {
 
   // Initial load
   useEffect(() => {
+    setMounted(true);
     loadKPIs();
     loadAnalytics();
   }, [loadKPIs, loadAnalytics]);
@@ -122,6 +125,14 @@ export default function SentientCommandCentre() {
     loadAnalytics();
     loadAlerts();
   };
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-[#070D19] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-[#E3A008] border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#070D19] text-slate-100 flex flex-col font-sans">

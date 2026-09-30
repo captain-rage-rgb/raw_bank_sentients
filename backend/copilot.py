@@ -23,11 +23,19 @@ Features:
 """
 
 import os
+import sys
 import re
 import json
 import traceback
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # Load .env if present
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -52,14 +60,36 @@ GROQ_MODELS = [
 
 class SentientCopilot:
     def __init__(self):
-        self.api_key = os.environ.get("GROQ_API_KEY", "").strip()
+        self.api_key = ""
         self.groq_client = None
-        if self.api_key and GROQ_AVAILABLE:
-            try:
-                self.groq_client = groq.Groq(api_key=self.api_key)
-                print("[+] Groq Client successfully initialized for Sentient Copilot.")
-            except Exception as e:
-                print(f"[!] Warning: Failed to initialize Groq client: {e}")
+        self._get_groq_client()
+
+    def _get_groq_client(self):
+        """Dynamically re-checks environment variables and .env files on each query."""
+        root_env = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+        backend_env = os.path.abspath(os.path.join(os.path.dirname(__file__), ".env"))
+        
+        if os.path.exists(root_env):
+            load_dotenv(root_env, override=True)
+        if os.path.exists(backend_env):
+            load_dotenv(backend_env, override=True)
+
+        current_key = os.environ.get("GROQ_API_KEY", "").strip()
+        if current_key and GROQ_AVAILABLE:
+            if not self.groq_client or self.api_key != current_key:
+                try:
+                    self.api_key = current_key
+                    self.groq_client = groq.Groq(api_key=current_key)
+                    masked = f"{current_key[:6]}...{current_key[-4:]}" if len(current_key) > 10 else "***"
+                    print(f"[+] Groq Client dynamically initialized with key: {masked}")
+                except Exception as e:
+                    print(f"[!] Warning: Failed to re-initialize Groq client: {e}")
+                    self.groq_client = None
+        elif not current_key:
+            self.groq_client = None
+            self.api_key = ""
+
+        return self.groq_client
 
     def build_context(self, transaction_id: str, query: str = "") -> Dict[str, Any]:
         """Combines deterministic customer/device facts + semantic FAISS search results."""
@@ -145,15 +175,21 @@ class SentientCopilot:
             }
 
         # Check if Groq is available
+        client = self._get_groq_client()
         llm_response = None
         used_model = "deterministic-rule-synthesizer"
 
-        if self.groq_client:
+        # Always compute deterministic baseline for robust fallback and schema normalization
+        deterministic_fallback = self._synthesize_deterministic_investigation(context, query)
+
+        if client:
             llm_response, used_model = self._call_groq(context, query)
 
-        # If LLM response failed or Groq not configured, use Deterministic Synthesis
-        if not llm_response:
-            llm_response = self._synthesize_deterministic_investigation(context, query)
+        # If LLM response succeeded, normalize against Section 12 schema contract; else use deterministic synthesis
+        if llm_response:
+            final_investigation = self._normalize_investigation(llm_response, deterministic_fallback)
+        else:
+            final_investigation = deterministic_fallback
             used_model = "deterministic-rule-synthesizer (BFSI Sections 11, 12, 14)"
 
         return {
@@ -161,7 +197,7 @@ class SentientCopilot:
             "transaction_id": transaction_id,
             "query": query,
             "engine": used_model,
-            "investigation": llm_response,
+            "investigation": final_investigation,
             "context_summary": {
                 "amount_usd": context["transaction"].get("amount_usd_equiv"),
                 "channel": context["transaction"].get("channel"),
@@ -207,7 +243,7 @@ You must output a valid JSON object with the following exact keys:
     "disposition_suggestion": "SUSPICIOUS / LEGITIMATE / INSUFFICIENT_EVIDENCE",
     "next_steps": ["step 1", "step 2"]
   },
-  "executive_summary": "2-3 sentence overview using probabilistic language."
+  "executive_summary": "Direct natural-language synthesis addressing the analyst's specific inquiry. If the analyst asks a specific question (e.g. ATO likelihood, device risk, false-positive justification, SAR drafting), answer it directly while referencing telemetry. If the query is off-topic (e.g. general coding, trivia, non-banking questions), politely state that you are the dedicated Rawbank Fraud Investigation Copilot and provide the case risk summary."
 }"""
 
         user_content = f"""INVESTIGATION REQUEST:
@@ -279,6 +315,116 @@ SEMANTICALLY SIMILAR HISTORICAL CASES (FAISS E5-Small):
                 continue
 
         return None, "fallback"
+
+    def _normalize_investigation(self, parsed: Any, fallback: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validates, sanitizes, and normalizes Groq's response to guarantee 100% adherence
+        to the Section 12 7-part schema. If any field or array is omitted or ill-typed,
+        it merges seamlessly with the deterministic baseline.
+        """
+        if not isinstance(parsed, dict):
+            return fallback
+
+        def ensure_list(val, default_list):
+            if isinstance(val, list):
+                out = []
+                for item in val:
+                    if isinstance(item, str) and item.strip():
+                        out.append(item.strip())
+                    elif isinstance(item, dict):
+                        desc = item.get("description") or item.get("observation") or item.get("detail") or item.get("text")
+                        out.append(str(desc) if desc else json.dumps(item))
+                    elif item is not None and str(item).strip():
+                        out.append(str(item).strip())
+                return out if out else default_list
+            if isinstance(val, str) and val.strip():
+                return [val.strip()]
+            return default_list
+
+        def ensure_rules(val, default_rules):
+            if isinstance(val, list):
+                out = []
+                for item in val:
+                    if isinstance(item, dict):
+                        out.append({
+                            "rule_code": str(item.get("rule_code") or item.get("id") or item.get("code") or "FR-XX"),
+                            "rule_name": str(item.get("rule_name") or item.get("title") or item.get("name") or "Fraud Rule"),
+                            "weight": int(item.get("weight", 10) or 10),
+                            "detail": str(item.get("detail") or item.get("description") or item.get("reason") or "")
+                        })
+                    elif isinstance(item, str) and item.strip():
+                        out.append({
+                            "rule_code": "FR-XX",
+                            "rule_name": item.strip(),
+                            "weight": 10,
+                            "detail": item.strip()
+                        })
+                return out if out else default_rules
+            return default_rules
+
+        # Section 1: Observed Facts
+        observed = ensure_list(
+            parsed.get("observed_facts") or parsed.get("facts") or parsed.get("observed_telemetry"),
+            fallback.get("observed_facts", [])
+        )
+
+        # Section 2: Derived Metrics
+        derived = ensure_list(
+            parsed.get("derived_metrics") or parsed.get("metrics") or parsed.get("behavioral_metrics"),
+            fallback.get("derived_metrics", [])
+        )
+
+        # Section 3: Triggered Rules
+        rules = ensure_rules(
+            parsed.get("triggered_rules") or parsed.get("rules") or parsed.get("rule_evaluations"),
+            fallback.get("triggered_rules", [])
+        )
+
+        # Section 4: Supporting Evidence (Check aliases: risk_signals, supporting_evidence, evidence)
+        supporting = ensure_list(
+            parsed.get("supporting_evidence") or parsed.get("risk_signals") or parsed.get("evidence"),
+            fallback.get("supporting_evidence", ["Elevated risk indicators observed in telemetry."])
+        )
+
+        # Section 5: Counter-Evidence (Check aliases: counter_evidence, mitigating_factors, mitigating_evidence)
+        counter = ensure_list(
+            parsed.get("counter_evidence") or parsed.get("mitigating_factors") or parsed.get("mitigating_evidence"),
+            fallback.get("counter_evidence", ["No mitigating factors identified."])
+        )
+
+        # Section 6: Evidence Gaps (Check aliases: evidence_gaps, gaps, unverified_items)
+        gaps = ensure_list(
+            parsed.get("evidence_gaps") or parsed.get("gaps") or parsed.get("unverified_elements"),
+            fallback.get("evidence_gaps", ["Out-of-band verification required."])
+        )
+
+        # Section 7: Recommended Analyst Action
+        rec_raw = parsed.get("recommended_analyst_action") or parsed.get("recommended_action") or {}
+        fb_rec = fallback.get("recommended_analyst_action", {})
+        if isinstance(rec_raw, dict):
+            rec_action = {
+                "action": str(rec_raw.get("action") or fb_rec.get("action", "MONITOR_AND_REVIEW")),
+                "rationale": str(rec_raw.get("rationale") or fb_rec.get("rationale", "Standard operational review.")),
+                "disposition_suggestion": str(rec_raw.get("disposition_suggestion") or fb_rec.get("disposition_suggestion", "SUSPICIOUS")),
+                "next_steps": ensure_list(rec_raw.get("next_steps") or rec_raw.get("steps"), fb_rec.get("next_steps", ["Review telemetry"]))
+            }
+        else:
+            rec_action = fb_rec
+
+        # Executive Summary
+        summary = str(parsed.get("executive_summary") or parsed.get("summary") or fallback.get("executive_summary", ""))
+
+        return {
+            "observed_facts": observed,
+            "derived_metrics": derived,
+            "triggered_rules": rules,
+            "supporting_evidence": supporting,
+            "counter_evidence": counter,
+            "evidence_gaps": gaps,
+            "recommended_analyst_action": rec_action,
+            "executive_summary": summary,
+        }
+
 
     def _synthesize_deterministic_investigation(self, context: Dict[str, Any], query: str) -> Dict[str, Any]:
         """

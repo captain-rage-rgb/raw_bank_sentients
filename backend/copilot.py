@@ -51,10 +51,9 @@ from retrieval import retrieval_engine
 from rules_meta import RULES_CATALOG, COUNTER_EVIDENCE_CATALOG
 
 GROQ_MODELS = [
-    "openai/gpt-oss-20b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768"
+    "openai/gpt-oss-120b",     # Most capable available model
+    "openai/gpt-oss-20b",      # Faster / fallback
+    "qwen/qwen3.8-27b",        # Additional fallback
 ]
 
 
@@ -306,14 +305,24 @@ SEMANTICALLY SIMILAR HISTORICAL CASES (FAISS E5-Small):
                     response_format={"type": "json_object"},
                     temperature=0.2,
                     max_tokens=2048,
+                    timeout=60,
                 )
                 raw_text = response.choices[0].message.content
+                if not raw_text or not raw_text.strip():
+                    print(f"[!] Groq model '{model_name}' returned empty response, trying next model.")
+                    continue
                 parsed = json.loads(raw_text)
+                print(f"[+] Groq model '{model_name}' responded successfully.")
                 return parsed, f"Groq ({model_name})"
+            except json.JSONDecodeError as e:
+                print(f"[!] Groq model '{model_name}' returned invalid JSON: {e}")
+                continue
             except Exception as e:
-                print(f"[!] Groq model '{model_name}' attempt failed: {e}")
+                err_str = str(e)
+                print(f"[!] Groq model '{model_name}' attempt failed: {err_str[:200]}")
                 continue
 
+        print("[!] All Groq models exhausted. Using deterministic synthesis engine.")
         return None, "fallback"
 
     def _normalize_investigation(self, parsed: Any, fallback: Dict[str, Any]) -> Dict[str, Any]:
